@@ -39,7 +39,7 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
-python -m fdl download --fixtures  # 3 matches (~40 MB), enough for the tests
+python -m fdl download --fixtures  # 3 matches (~30 MB), enough for the tests
 pytest                             # unfinished milestones show as SKIPPED "TODO"
 
 python -m fdl download             # World Cup 2022, Euro 2020, Euro 2024 (~2 GB, all with 360 data)
