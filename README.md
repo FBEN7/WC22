@@ -1,4 +1,4 @@
-# Football Data Lab
+# WC22
 
 An end-to-end event-data project on **StatsBomb Open Data**, built the way a
 data provider works: raw JSON → a DuckDB warehouse → automated data-quality
