@@ -133,8 +133,14 @@ def xg_model():
         return
 
     n_splits = min(5, n_matches)
-    ours = xg.fit_predict_oof(shots, feature_cols, n_splits=n_splits)
-    geo = xg.fit_predict_oof(shots, ["distance", "angle"], n_splits=n_splits)
+
+    @st.cache_data(show_spinner=False)
+    def cached_predictions(_shots: pd.DataFrame, cols: tuple[str, ...]):
+        ours_cached = xg.fit_predict_oof(_shots, list(cols), n_splits=n_splits)
+        geo_cached = xg.fit_predict_oof(_shots, ["distance", "angle"], n_splits=n_splits)
+        return ours_cached, geo_cached
+
+    ours, geo = cached_predictions(shots, tuple(feature_cols))
     y = shots["is_goal"].to_numpy()
 
     models = {
@@ -167,6 +173,40 @@ def xg_model():
     st.subheader("Largest model/StatsBomb disagreements")
     st.dataframe(disagreement.round(4), hide_index=True)
 
+    for _, shot in disagreement.iterrows():
+        event = query("""
+            SELECT match_id, x, y, player_name
+            FROM events
+            WHERE event_id = ?
+        """, (shot["event_id"] ,))
+        frame = query("""
+            SELECT x, y, teammate, position_name
+            FROM shot_freeze_frames
+            WHERE shot_event_id = ?
+        """, (shot["event_id"],))
+        if event.empty:
+            continue
+        pitch = Pitch(pitch_type="statsbomb", pitch_color="white", line_color="#888888")
+        fig, ax = pitch.draw(figsize=(8, 5))
+        ball = event.iloc[0]
+        pitch.scatter(ball["x"], ball["y"], ax=ax, s=100,
+                      color="#111111", edgecolor="white", label="Shot")
+        if not frame.empty:
+            teammates = frame[frame["teammate"]]
+            opponents = frame[~frame["teammate"]]
+            pitch.scatter(teammates["x"], teammates["y"], ax=ax,
+                          s=35, color="#1f77b4", label="Teammates")
+            pitch.scatter(opponents["x"], opponents["y"], ax=ax,
+                          s=35, color="#d62728", label="Opponents")
+        ax.set_title(
+            f"Disagreement: {ball['player_name']} — "
+            f"model {shot['model_xg']:.3f}, "
+            f"StatsBomb {shot['statsbomb_xg']:.3f}"
+        )
+        ax.legend(loc="lower center", ncol=3, fontsize=8, frameon=False)
+        st.pyplot(fig)
+        plt.close(fig)
+
 
 def expected_threat():
     from fdl import xt
@@ -177,15 +217,26 @@ def expected_threat():
 
     pitch = Pitch(pitch_type="statsbomb", pitch_color="white", line_color="#888888")
     fig, ax = pitch.draw(figsize=(10, 6.5))
-    pitch.heatmap(grid, ax=ax, cmap="YlGn", edgecolors="none")
+    image = ax.imshow(
+        grid,
+        origin="lower",
+        extent=(0, 120, 0, 80),
+        aspect="auto",
+        cmap="YlGn",
+        alpha=0.75,
+    )
+    fig.colorbar(image, ax=ax, shrink=0.6, label="xT")
     ax.set_title("Expected-threat grid")
     st.pyplot(fig)
     plt.close(fig)
 
     min_minutes = st.sidebar.slider("Minimum minutes", 0, 200, 25, 5)
     added = xt.rate_moves(moves, grid)
-    totals = (moves.assign(xt_added=added)
-                    .groupby(["player_id", "player_name", "team_id"], as_index=False)["xt_added"].sum())
+    totals = (
+        moves.assign(xt_added=added)
+        .groupby(["player_id", "player_name", "team_id"], as_index=False)["xt_added"]
+        .sum()
+    )
     minutes = query("SELECT * FROM minutes_played")
     minute_totals = minutes.groupby(["player_id", "team_id"], as_index=False)["minutes"].sum()
     ranking = totals.merge(minute_totals, on=["player_id", "team_id"])
@@ -218,8 +269,44 @@ def player_profile():
         return
 
     profile = profile.iloc[0]
+    position = query("SELECT position_name FROM events WHERE player_id = ? LIMIT 1", (player_id,))
+    position_name = position.iloc[0]["position_name"] if not position.empty else None
+
+    defender = position_name and (
+        "Back" in position_name
+        or "Defensive" in position_name
+        or position_name == "Goalkeeper"
+    )
+    midfielder = position_name and ("Midfield" in position_name or "Wing" in position_name)
+    position_group = "Defenders" if defender else "Midfielders" if midfielder else "Attackers"
+
+    if position_group == "Defenders":
+        position_filter = (
+            "position_name LIKE '%Back%'",
+            "position_name LIKE '%Defensive%'",
+            "position_name = 'Goalkeeper'",
+        )
+    elif position_group == "Midfielders":
+        position_filter = ("position_name LIKE '%Midfield%'", "position_name LIKE '%Wing%'")
+    else:
+        position_filter = ("position_name LIKE '%Forward%'", "position_name LIKE '%Striker%'")
+
+    group_players = query(
+        "SELECT DISTINCT player_id FROM events WHERE " + " OR ".join(position_filter)
+    )
+
     metrics = ["passes_p90", "progressive_p90", "completion_pct"]
     population = query("SELECT * FROM player_passing WHERE minutes >= 25")
+    if not group_players.empty:
+        ids = tuple(int(value) for value in group_players["player_id"])
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            population = query(
+                "SELECT * FROM player_passing "
+                "WHERE minutes >= 25 AND player_id IN ("
+                f"{placeholders})",
+                ids,
+            )
     percentiles = {m: 100 * (population[m] < profile[m]).mean() for m in metrics}
 
     st.subheader(profile["player_name"])
@@ -241,6 +328,18 @@ def player_profile():
     ax.set_title("Percentile profile among players with 25+ minutes")
     st.pyplot(fig)
     plt.close(fig)
+
+    if not population.empty:
+        comparison = pd.DataFrame({
+            "Metric": ["Passes/90", "Progressive/90", "Completion %"],
+            "Player": [profile[m] for m in metrics],
+            "Position group mean": [population[m].mean() for m in metrics],
+        })
+        comparison["Difference"] = (
+            comparison["Player"] - comparison["Position group mean"]
+        )
+        st.subheader(f"Comparison — {position_group}")
+        st.dataframe(comparison.round(4), hide_index=True)
 
 
 PAGES = {

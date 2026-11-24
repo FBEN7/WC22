@@ -84,7 +84,7 @@ def build_shot_features(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
     for row in df.itertuples(index=False):
         frame = ff[ff["event_id"] == row.event_id]
-        opponents = frame[frame["teammate"] == False]
+        opponents = frame[~frame["teammate"]]
 
         bx, by = row.x, row.y
         p1 = np.array([120.0, 36.0])
@@ -94,7 +94,7 @@ def build_shot_features(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         def sign(a, b, c):
             return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
-        def inside(point):
+        def inside(point, ball=ball, p1=p1, p2=p2):
             d1 = sign(ball, p1, point)
             d2 = sign(p1, p2, point)
             d3 = sign(p2, ball, point)

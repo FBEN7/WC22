@@ -81,8 +81,8 @@ def check_score_reconciliation(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         SELECT match_id, home_score, away_score,
                home_goals_events, away_goals_events
         FROM totals
-        WHERE home_goals_events + away_goals_events
-              != home_score + away_score
+        WHERE home_goals_events != home_score
+              OR away_goals_events != away_score
         ORDER BY match_id
     """).df()
 
@@ -115,20 +115,28 @@ def check_related_events_reciprocal(con: duckdb.DuckDBPyConnection) -> pd.DataFr
             SELECT e.match_id, e.event_id, e.type_name,
                    unnest(e.related_events) AS related_event_id
             FROM events e
+        ),
+        reciprocal AS (
+            SELECT l.*,
+                   target.event_id AS target_event_id,
+                   target.type_name AS target_type,
+                   reverse.event_id AS reverse_event_id
+            FROM links l
+            LEFT JOIN events target ON target.event_id = l.related_event_id
+            LEFT JOIN events reverse
+              ON reverse.event_id = l.related_event_id
+             AND list_contains(reverse.related_events, l.event_id)
         )
-        SELECT l.match_id, l.event_id, l.related_event_id
-        FROM links l
-        JOIN events target ON target.event_id = l.related_event_id
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM events reverse
-            WHERE reverse.event_id = l.related_event_id
-              AND l.event_id IN (SELECT unnest(reverse.related_events))
-        )
-          AND NOT (l.type_name = 'Carry' AND target.type_name = 'Pass')
-          AND NOT (l.type_name = 'Pass' AND target.type_name = 'Carry')
-          AND l.type_name != 'Carry'
-        ORDER BY l.match_id, l.event_id, l.related_event_id
+        SELECT match_id, event_id, related_event_id
+        FROM reciprocal
+        WHERE target_event_id IS NULL
+           OR (
+              reverse_event_id IS NULL
+              AND type_name != 'Carry'
+              AND NOT (type_name = 'Pass' AND target_type = 'Ball Receipt*')
+              AND NOT (type_name = 'Ball Receipt*' AND target_type = 'Pass')
+           )
+        ORDER BY match_id, event_id, related_event_id
     """).df()
 
 
