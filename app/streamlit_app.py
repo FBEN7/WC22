@@ -34,6 +34,10 @@ def query(q: str, params: tuple = ()) -> pd.DataFrame:
     return get_con().execute(q, list(params)).df()
 
 
+# Per-90 rankings need a real sample: three full matches.
+MIN_MINUTES = 270
+
+
 def todo(milestone: str, what: str):
     st.info(f"**To do ({milestone})** - {what}")
 
@@ -230,7 +234,10 @@ def expected_threat():
     st.pyplot(fig)
     plt.close(fig)
 
-    min_minutes = st.sidebar.slider("Minimum minutes", 0, 200, 25, 5)
+    max_minutes = int(query("SELECT max(m) AS m FROM (SELECT sum(minutes) AS m FROM minutes_played "
+                            "GROUP BY player_id)")["m"].iloc[0])
+    min_minutes = st.sidebar.slider("Minimum minutes", 0, max_minutes, MIN_MINUTES, 30,
+                                    help="Per-90 rates are unstable for small samples.")
     added = xt.rate_moves(moves, grid)
     totals = (
         moves.assign(xt_added=added)
@@ -296,16 +303,16 @@ def player_profile():
     )
 
     metrics = ["passes_p90", "progressive_p90", "completion_pct"]
-    population = query("SELECT * FROM player_passing WHERE minutes >= 25")
+    population = query("SELECT * FROM player_passing WHERE minutes >= ?", (MIN_MINUTES,))
     if not group_players.empty:
         ids = tuple(int(value) for value in group_players["player_id"])
         if ids:
             placeholders = ",".join("?" for _ in ids)
             population = query(
                 "SELECT * FROM player_passing "
-                "WHERE minutes >= 25 AND player_id IN ("
+                "WHERE minutes >= ? AND player_id IN ("
                 f"{placeholders})",
-                ids,
+                (MIN_MINUTES, *ids),
             )
     percentiles = {m: 100 * (population[m] < profile[m]).mean() for m in metrics}
 
@@ -325,7 +332,7 @@ def player_profile():
     ax.set_xticks(theta[:-1])
     ax.set_xticklabels(["Passes/90", "Progressive/90", "Completion %"])
     ax.set_ylim(0, 100)
-    ax.set_title("Percentile profile among players with 25+ minutes")
+    ax.set_title(f"Percentile profile among players with {MIN_MINUTES}+ minutes")
     st.pyplot(fig)
     plt.close(fig)
 
@@ -342,7 +349,51 @@ def player_profile():
         st.dataframe(comparison.round(4), hide_index=True)
 
 
+@st.cache_data
+def pressing_tables():
+    from fdl import pressing
+
+    con = get_con()
+    df = pressing.team_matches(con)
+    return df, pressing.regain_value(con), pressing.effects(df), pressing.team_tournaments(df)
+
+
+def pressing_page():
+    import altair as alt
+
+    st.header("Does pressing pay off?")
+    df, regains, effects, teams = pressing_tables()
+    st.caption(f"{df['match_id'].nunique()} matches, {df['tournament'].nunique()} tournaments. "
+               "PPDA: opponent passes per defensive action - lower means more pressing.")
+
+    tournaments = sorted(teams["tournament"].unique())
+    chosen = st.sidebar.multiselect("Tournaments", tournaments, default=tournaments)
+    min_matches = st.sidebar.slider("Minimum matches per team", 1, 7, 4)
+    t = teams[teams["tournament"].isin(chosen) & (teams["matches"] >= min_matches)]
+
+    chart = (alt.Chart(t).mark_circle(size=70, color="#2a78d6", opacity=0.85)
+             .encode(x=alt.X("ppda:Q", scale=alt.Scale(
+                                 type="log", reverse=True, nice=False,
+                                 domain=[t["ppda"].min() * 0.9, t["ppda"].max() * 1.1]),
+                             title="PPDA (log scale, right = more pressing)"),
+                     y=alt.Y("npxgd_p90:Q", title="Non-penalty xG difference per 90"),
+                     tooltip=["team_name", "tournament", "matches",
+                              alt.Tooltip("ppda:Q", format=".1f"),
+                              alt.Tooltip("possession:Q", format=".0%"),
+                              alt.Tooltip("npxgd_p90:Q", format="+.2f")])
+             .properties(height=420))
+    st.altair_chart(chart, use_container_width=True)
+    st.dataframe(t.sort_values("ppda").round(3), hide_index=True)
+
+    st.subheader("What a regain is worth, by zone")
+    st.dataframe(regains.round(4), hide_index=True)
+    st.subheader("Effect of doubling PPDA on npxG difference")
+    st.dataframe(effects.round(3), hide_index=True)
+    st.caption("OLS, standard errors clustered by national team. See README for the method.")
+
+
 PAGES = {
+    "Pressing": pressing_page,
     "Match centre": match_centre,
     "Data quality": data_quality,
     "xG model": xg_model,

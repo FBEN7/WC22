@@ -175,3 +175,19 @@ def test_run_all_summary(con):
     summary = quality.run_all(con)
     assert list(summary["check"]) == list(quality.CHECKS)
     assert set(summary["status"]) <= {"PASS", "FAIL", "TODO"}
+
+
+def test_related_events_pass_receipt_checked(writable_con):
+    # Pass <-> Ball Receipt* links are reciprocal in the data: a broken one is a defect.
+    p, r = writable_con.execute(
+        "SELECT p.event_id, r.event_id FROM events p JOIN events r "
+        "ON r.event_id = p.related_events[1] "
+        "WHERE p.match_id = ? AND p.type_name = 'Pass' AND r.type_name = 'Ball Receipt*' LIMIT 1",
+        [WAL_IRN],
+    ).fetchone()
+    back = writable_con.execute("SELECT related_events FROM events WHERE event_id = ?",
+                                [r]).fetchone()[0]
+    writable_con.execute("UPDATE events SET related_events = ? WHERE event_id = ?",
+                         [[x for x in back if x != p], r])
+    out = quality.check_related_events_reciprocal(writable_con)
+    assert (p, r) in set(map(tuple, out[["event_id", "related_event_id"]].itertuples(index=False)))

@@ -1,0 +1,256 @@
+{
+  "matches": 314,
+  "tournaments": 6,
+  "team_matches": 628,
+  "correlations": {
+    "ppda_vs_npxgd": -0.31667156063299967,
+    "ppda_vs_possession": -0.5834311864185221,
+    "possession_vs_npxgd": 0.48707247738497583,
+    "ppda_vs_high_regains": -0.20846263108316693
+  },
+  "regain_value": [
+    {
+      "zone": "Defensive third",
+      "regains": 11138,
+      "shot_rate": 0.09220685940025139,
+      "npxg_per_regain": 0.009406915889037528,
+      "goal_rate": 0.01014544801580176,
+      "per_team_match": 17.735668789808916,
+      "share_of_all_npxg": 0.15260779111909276
+    },
+    {
+      "zone": "Middle zone",
+      "regains": 7363,
+      "shot_rate": 0.14355561591742497,
+      "npxg_per_regain": 0.015528365723590927,
+      "goal_rate": 0.014939562678256146,
+      "per_team_match": 11.72452229299363,
+      "share_of_all_npxg": 0.16653395008881722
+    },
+    {
+      "zone": "Within 40 m of goal",
+      "regains": 1153,
+      "shot_rate": 0.2541196877710321,
+      "npxg_per_regain": 0.028206325529661753,
+      "goal_rate": 0.026019080659150044,
+      "per_team_match": 1.835987261146497,
+      "share_of_all_npxg": 0.047369418455177975
+    }
+  ],
+  "effects": [
+    {
+      "model": "Raw association",
+      "effect": -0.5645182352150739,
+      "ci_low": -0.7192442272431306,
+      "ci_high": -0.40979224318701724,
+      "p_value": 8.618921262281875e-13,
+      "n": 628,
+      "r2": 0.105586235400421
+    },
+    {
+      "model": "+ team & opponent strength",
+      "effect": -0.3458658999134976,
+      "ci_low": -0.47802352027221856,
+      "ci_high": -0.21370827955477661,
+      "p_value": 2.907207619950446e-07,
+      "n": 628,
+      "r2": 0.2820204112315843
+    },
+    {
+      "model": "+ strength + possession share",
+      "effect": -0.06525922720770788,
+      "ci_low": -0.20402872337812106,
+      "ci_high": 0.0735102689627053,
+      "p_value": 0.3566779730941241,
+      "n": 628,
+      "r2": 0.3370609396897327
+    },
+    {
+      "model": "Within team (fixed effects)",
+      "effect": -0.42390088287304856,
+      "ci_low": -0.5741742803668762,
+      "ci_high": -0.2736274853792209,
+      "p_value": 3.224420830974095e-08,
+      "n": 628,
+      "r2": 0.4453336735427389
+    },
+    {
+      "model": "Within team + possession share",
+      "effect": -0.00974203991879515,
+      "ci_low": -0.18170823424067806,
+      "ci_high": 0.16222415440308774,
+      "p_value": 0.9115896022475518,
+      "n": 628,
+      "r2": 0.505739958859565
+    },
+    {
+      "model": "Score level only + possession share",
+      "effect": -0.04275794416680236,
+      "ci_low": -0.20394676761636893,
+      "ci_high": 0.11843087928276419,
+      "p_value": 0.603124794241163,
+      "n": 521,
+      "r2": 0.22289081293289337
+    }
+  ],
+  "by_tournament": [
+    {
+      "tournament": "African Cup of Nations 2023",
+      "matches": 52,
+      "median_ppda": 13.541666666666668,
+      "high_regains_per_team_match": 1.3557692307692308
+    },
+    {
+      "tournament": "Copa America 2024",
+      "matches": 32,
+      "median_ppda": 11.666666666666666,
+      "high_regains_per_team_match": 1.828125
+    },
+    {
+      "tournament": "FIFA World Cup 2018",
+      "matches": 64,
+      "median_ppda": 15.23793103448276,
+      "high_regains_per_team_match": 1.953125
+    },
+    {
+      "tournament": "FIFA World Cup 2022",
+      "matches": 64,
+      "median_ppda": 16.3202614379085,
+      "high_regains_per_team_match": 1.8046875
+    },
+    {
+      "tournament": "UEFA Euro 2020",
+      "matches": 51,
+      "median_ppda": 16.150735294117645,
+      "high_regains_per_team_match": 2.0294117647058822
+    },
+    {
+      "tournament": "UEFA Euro 2024",
+      "matches": 51,
+      "median_ppda": 17.946886446886445,
+      "high_regains_per_team_match": 2.0294117647058822
+    }
+  ],
+  "most_intense_pressers": [
+    {
+      "tournament": "African Cup of Nations 2023",
+      "team_name": "Mali",
+      "matches": 5,
+      "possession": 0.6005138618967248,
+      "high_regains": 15,
+      "npxgd": 1.7618674297999997,
+      "minutes": 540.07545,
+      "ppda": 8.347517730496454,
+      "high_regains_p90": 2.4996507432433743,
+      "npxgd_p90": 0.29360354869305755
+    },
+    {
+      "tournament": "UEFA Euro 2020",
+      "team_name": "Spain",
+      "matches": 6,
+      "possession": 0.7387029929414233,
+      "high_regains": 15,
+      "npxgd": 7.920010058499999,
+      "minutes": 672.0818,
+      "ppda": 8.553571428571429,
+      "high_regains_p90": 2.0086840619698374,
+      "npxgd_p90": 1.0605865316766498
+    },
+    {
+      "tournament": "Copa America 2024",
+      "team_name": "Brazil",
+      "matches": 4,
+      "possession": 0.5996698796758312,
+      "high_regains": 9,
+      "npxgd": 1.9223285305999998,
+      "minutes": 395.9684166666668,
+      "ppda": 8.961538461538462,
+      "high_regains_p90": 2.045617695519065,
+      "npxgd_p90": 0.4369276954218358
+    },
+    {
+      "tournament": "Copa America 2024",
+      "team_name": "Uruguay",
+      "matches": 6,
+      "possession": 0.5311946400182311,
+      "high_regains": 9,
+      "npxgd": 2.6564584701999996,
+      "minutes": 590.3185833333338,
+      "ppda": 9.040816326530612,
+      "high_regains_p90": 1.3721404388562495,
+      "npxgd_p90": 0.40500378790040314
+    },
+    {
+      "tournament": "African Cup of Nations 2023",
+      "team_name": "C\u00f4te d'Ivoire",
+      "matches": 7,
+      "possession": 0.5931261023461287,
+      "high_regains": 11,
+      "npxgd": 1.4714377246000003,
+      "minutes": 776.9576499999998,
+      "ppda": 9.340909090909092,
+      "high_regains_p90": 1.274200723810365,
+      "npxgd_p90": 0.17044609215701792
+    },
+    {
+      "tournament": "FIFA World Cup 2018",
+      "team_name": "Argentina",
+      "matches": 4,
+      "possession": 0.6632731054860668,
+      "high_regains": 9,
+      "npxgd": 0.5719887382,
+      "minutes": 386.12365,
+      "ppda": 9.733333333333333,
+      "high_regains_p90": 2.0977736017982838,
+      "npxgd_p90": 0.1333225417246522
+    },
+    {
+      "tournament": "African Cup of Nations 2023",
+      "team_name": "Cape Verde Islands",
+      "matches": 5,
+      "possession": 0.5399473594531683,
+      "high_regains": 12,
+      "npxgd": 0.6171291795999996,
+      "minutes": 548.6061333333329,
+      "ppda": 10.024193548387096,
+      "high_regains_p90": 1.9686254570978199,
+      "npxgd_p90": 0.10124135110653766
+    },
+    {
+      "tournament": "Copa America 2024",
+      "team_name": "Colombia",
+      "matches": 6,
+      "possession": 0.5465125401350857,
+      "high_regains": 17,
+      "npxgd": 3.2554285403,
+      "minutes": 624.7460500000001,
+      "ppda": 10.47682119205298,
+      "high_regains_p90": 2.4489950756791496,
+      "npxgd_p90": 0.46897226261294483
+    },
+    {
+      "tournament": "African Cup of Nations 2023",
+      "team_name": "Cameroon",
+      "matches": 4,
+      "possession": 0.597745893593755,
+      "high_regains": 8,
+      "npxgd": -1.7520196523999998,
+      "minutes": 416.3563333333334,
+      "ppda": 10.507246376811594,
+      "high_regains_p90": 1.7292879736827989,
+      "npxgd_p90": -0.37871831431890457
+    },
+    {
+      "tournament": "FIFA World Cup 2018",
+      "team_name": "Mexico",
+      "matches": 4,
+      "possession": 0.5266275796223604,
+      "high_regains": 4,
+      "npxgd": -4.1676163495,
+      "minutes": 383.71388333333346,
+      "ppda": 11.10126582278481,
+      "high_regains_p90": 0.9381990478756457,
+      "npxgd_p90": -0.9775134227529685
+    }
+  ]
+}
