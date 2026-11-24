@@ -39,6 +39,15 @@ def test_score_clean(con):
     assert out.empty, out
 
 
+def test_score_wrong_team_injected(writable_con):
+    writable_con.execute(
+        "UPDATE matches SET home_score = 1, away_score = 1 WHERE match_id = ?",
+        [WAL_IRN],
+    )
+    out = quality.check_score_reconciliation(writable_con)
+    assert WAL_IRN in set(out["match_id"])
+
+
 def test_score_injected(writable_con):
     goal = writable_con.execute(
         "SELECT s.event_id FROM shots s JOIN events e USING (event_id) "
@@ -95,6 +104,25 @@ def test_related_events_injected(writable_con):
                          [[x for x in back if x != a], b])
     out = quality.check_related_events_reciprocal(writable_con)
     assert _ids(out, "event_id", "related_event_id") == {(a, b)}
+
+
+def test_related_event_missing_target_injected(writable_con):
+    link = writable_con.execute("""
+        SELECT event_id, related_events[1]
+        FROM events
+        WHERE match_id = ? AND len(related_events) > 0
+        LIMIT 1
+    """, [CAN_MAR]).fetchone()
+    if link:
+        source, _ = link
+        writable_con.execute(
+            "UPDATE events SET related_events = ['missing-event-id'] WHERE event_id = ?",
+            [source],
+        )
+        out = quality.check_related_events_reciprocal(writable_con)
+        assert (source, "missing-event-id") in set(
+            map(tuple, out[["event_id", "related_event_id"]].itertuples(index=False))
+        )
 
 
 # ---------------------------------------------------------------- players in lineups

@@ -43,7 +43,7 @@ def_actions AS (
           OR e.type_name = 'Foul Committed'
           OR (
               e.type_name = 'Duel'
-              AND cast(details AS VARCHAR) LIKE '%Tackle%'
+              AND json_extract_string(details, '$.duel.type.name') = 'Tackle'
           )
       )
     GROUP BY e.match_id, e.team_id

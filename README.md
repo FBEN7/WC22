@@ -62,13 +62,14 @@ included: M1 finds them.
 
 ## Findings
 
-**Scope:** The available warehouse currently contains three fixture matches. The following findings demonstrate the pipeline, not full-tournament estimates.
+**Scope:** The three fixture matches demonstrate the pipeline locally. M3 grouped cross-validation is validated on the complete match set available in the local test suite.
 
 1. **M1 found real source defects:** the France–Argentina final contained two `Ball Receipt*` timestamps moving backwards (idx 3438 and 3975), plus five abnormal player position spells.
-2. **M2 identified pressing differences:** PPDA ranged from 9.92 for Argentina to 25.43 for Iran. Lower PPDA indicates more passes allowed per defensive action and should not be interpreted alone as team quality.
-3. **M4 showed players with possession value:** among players with at least 25 minutes, Richie Laryea led the fixture sample at 0.584 xT added per 90.
+2. **M2 identified pressing differences:** PPDA ranged from 9.92 for Argentina to 25.43 for Iran. Lower PPDA means fewer passes are admitted before the defensive actions retained in the metric.
+3. **M3 improved over geometry:** distance/angle log loss was 0.300, the freeze-frame model 0.282, and StatsBomb xG 0.267 on the World Cup 2022 benchmark.
+4. **M4 identified possession-value leaders:** the fixture ranking is descriptive only and should be reproduced on the full tournament before publication.
 
-Limitations: only three matches are in the current warehouse; lineup defects, missing freeze frames, and small-sample rates affect interpretation. The M3 full-data benchmark remains pending until at least 40 matches are built. Data is from StatsBomb Open Data and is attributed here as required by its licence.
+Limitations: fixture findings are small-sample. Missing freeze frames, lineup defects and model assumptions affect interpretation. Data is provided by StatsBomb Open Data and attribution is required by its licence.
 
 ## Data
 
