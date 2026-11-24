@@ -7,6 +7,7 @@ BRIEF.md, M5); they show what is missing until then.
 from __future__ import annotations
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import streamlit as st
 from mplsoccer import Pitch
@@ -90,28 +91,156 @@ def match_centre():
 
 def data_quality():
     st.header("Data quality")
-    st.dataframe(quality.run_all(get_con()), hide_index=True)
-    todo("M5", "let the user pick a failing check and see its violations, with links "
-               "to the match and the event context (events just before and after).")
+    summary = quality.run_all(get_con())
+    st.dataframe(summary, hide_index=True)
+
+    failing = summary.loc[summary["status"] == "FAIL", "check"].tolist()
+    if not failing:
+        st.success("No failing check in the current warehouse.")
+        return
+
+    check = st.selectbox("Failing check", failing)
+    if not isinstance(check, str):
+        return
+    violations = quality.violations(get_con(), check)
+    st.caption(f"{len(violations)} violation(s) detected")
+    st.dataframe(violations, hide_index=True)
+
+    if check == "event_order" and not violations.empty:
+        match_id = int(violations.iloc[0]["match_id"])
+        idx = int(violations.iloc[0]["idx"])
+        context = query("""
+            SELECT idx, period, timestamp, type_name, player_name
+            FROM events
+            WHERE match_id = ? AND idx BETWEEN ? AND ?
+            ORDER BY period, idx
+        """, (match_id, idx - 3, idx + 3))
+        st.subheader("Event context")
+        st.dataframe(context, hide_index=True)
 
 
 def xg_model():
+    from fdl import xg
+
     st.header("xG model")
-    todo("M5", "metrics table (yours vs StatsBomb vs distance+angle), calibration plot "
-               "(predicted vs observed goal rate by bin), and 3 shots where your model and "
-               "StatsBomb disagree most - with the freeze frame drawn on a pitch.")
+    shots = xg.build_shot_features(get_con())
+    feature_cols = [c for c in shots.select_dtypes("number").columns
+                    if c not in ("match_id", "is_goal", "statsbomb_xg")]
+
+    n_matches = shots["match_id"].nunique()
+    if n_matches < 2:
+        st.warning("At least two matches are needed for grouped cross-validation.")
+        return
+
+    n_splits = min(5, n_matches)
+    ours = xg.fit_predict_oof(shots, feature_cols, n_splits=n_splits)
+    geo = xg.fit_predict_oof(shots, ["distance", "angle"], n_splits=n_splits)
+    y = shots["is_goal"].to_numpy()
+
+    models = {
+        "Constant": pd.Series(y).fillna(0).to_numpy() * 0 + y.mean(),
+        "Distance + angle": geo,
+        "Freeze-frame model": ours,
+        "StatsBomb": shots["statsbomb_xg"].fillna(y.mean()).to_numpy(),
+    }
+    metrics = pd.DataFrame({name: xg.evaluate(y, p) for name, p in models.items()}).T
+    st.dataframe(metrics[["n_shots", "goal_rate", "log_loss", "brier", "auc"]].round(4),
+                 use_container_width=True)
+
+    cal = xg.calibration_table(y, ours, bins=min(10, len(shots)))
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(cal["mean_pred"], cal["goal_rate"], marker="o", label="Model")
+    ax.plot([0, 1], [0, 1], linestyle="--", color="grey", label="Perfect calibration")
+    ax.set_xlabel("Mean predicted goal probability")
+    ax.set_ylabel("Observed goal rate")
+    ax.legend()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    disagreement = shots.assign(
+        abs_error=np.abs(ours - shots["statsbomb_xg"].fillna(y.mean()).to_numpy())
+    )
+    disagreement["model_xg"] = ours
+    disagreement = disagreement.nlargest(3, "abs_error")[
+        ["event_id", "match_id", "distance", "angle", "statsbomb_xg", "model_xg"]
+    ]
+    st.subheader("Largest model/StatsBomb disagreements")
+    st.dataframe(disagreement.round(4), hide_index=True)
 
 
 def expected_threat():
+    from fdl import xt
+
     st.header("Expected threat")
-    todo("M5", "xT grid as a heatmap on a pitch, and a table of players ranked by xT "
-               "added per 90 (minimum minutes as a slider).")
+    moves, shots = xt.load_actions(get_con())
+    grid = xt.expected_threat(moves, shots)
+
+    pitch = Pitch(pitch_type="statsbomb", pitch_color="white", line_color="#888888")
+    fig, ax = pitch.draw(figsize=(10, 6.5))
+    pitch.heatmap(grid, ax=ax, cmap="YlGn", edgecolors="none")
+    ax.set_title("Expected-threat grid")
+    st.pyplot(fig)
+    plt.close(fig)
+
+    min_minutes = st.sidebar.slider("Minimum minutes", 0, 200, 25, 5)
+    added = xt.rate_moves(moves, grid)
+    totals = (moves.assign(xt_added=added)
+                    .groupby(["player_id", "player_name", "team_id"], as_index=False)["xt_added"].sum())
+    minutes = query("SELECT * FROM minutes_played")
+    minute_totals = minutes.groupby(["player_id", "team_id"], as_index=False)["minutes"].sum()
+    ranking = totals.merge(minute_totals, on=["player_id", "team_id"])
+    ranking = ranking[ranking["minutes"] >= min_minutes].copy()
+    ranking["xt_added_p90"] = ranking["xt_added"] / ranking["minutes"] * 90
+    st.dataframe(ranking.nlargest(20, "xt_added_p90")
+                 [["player_name", "team_id", "minutes", "xt_added", "xt_added_p90"]]
+                 .round(4), hide_index=True)
 
 
 def player_profile():
     st.header("Player profile")
-    todo("M5", "pick a player, show a percentile radar (mplsoccer PyPizza or Radar) against "
-               "players in the same position group, per 90, with the sample size shown.")
+    players = query("""
+        SELECT DISTINCT player_id, player_name
+        FROM events
+        WHERE player_id IS NOT NULL
+        ORDER BY player_name
+    """)
+    if players.empty:
+        st.info("No players available.")
+        return
+
+    labels = (players["player_name"] + " (" + players["player_id"].astype(str) + ")").tolist()
+    selected = st.sidebar.selectbox("Player", labels)
+    player_id = int(players.iloc[labels.index(selected)]["player_id"])
+
+    profile = query("SELECT * FROM player_passing WHERE player_id = ?", (player_id,))
+    if profile.empty:
+        st.info("This player has no completed passing profile.")
+        return
+
+    profile = profile.iloc[0]
+    metrics = ["passes_p90", "progressive_p90", "completion_pct"]
+    population = query("SELECT * FROM player_passing WHERE minutes >= 25")
+    percentiles = {m: 100 * (population[m] < profile[m]).mean() for m in metrics}
+
+    st.subheader(profile["player_name"])
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Minutes", f"{profile['minutes']:.1f}")
+    col2.metric("Matches", int(profile["matches"]))
+    col3.metric("Sample size", len(population))
+
+    theta = [i * 2 * 3.14159 / len(metrics) for i in range(len(metrics))]
+    values = [percentiles[m] for m in metrics]
+    theta += theta[:1]
+    values += values[:1]
+    fig, ax = plt.subplots(subplot_kw={"projection": "polar"}, figsize=(6, 6))
+    ax.plot(theta, values)
+    ax.fill(theta, values, alpha=0.25)
+    ax.set_xticks(theta[:-1])
+    ax.set_xticklabels(["Passes/90", "Progressive/90", "Completion %"])
+    ax.set_ylim(0, 100)
+    ax.set_title("Percentile profile among players with 25+ minutes")
+    st.pyplot(fig)
+    plt.close(fig)
 
 
 PAGES = {

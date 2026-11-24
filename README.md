@@ -25,12 +25,12 @@ DuckDB warehouse                         python -m fdl build
 | Milestone | Status |
 |---|---|
 | Foundation: ingest + warehouse + test harness | done |
-| M1 Data quality | to do |
-| M2 SQL | to do |
-| M3 xG | to do |
-| M4 xT | to do |
-| M5 App | to do (Match centre page done) |
-| M6 Findings write-up | to do |
+| M1 Data quality | done |
+| M2 SQL | done |
+| M3 xG | done (full-data validation pending) |
+| M4 xT | done |
+| M5 App | done |
+| M6 Findings write-up | done (fixture scope) |
 
 ## Quick start
 
@@ -62,7 +62,13 @@ included: M1 finds them.
 
 ## Findings
 
-To be written at M6.
+**Scope:** The available warehouse currently contains three fixture matches. The following findings demonstrate the pipeline, not full-tournament estimates.
+
+1. **M1 found real source defects:** the France–Argentina final contained two `Ball Receipt*` timestamps moving backwards (idx 3438 and 3975), plus five abnormal player position spells.
+2. **M2 identified pressing differences:** PPDA ranged from 9.92 for Argentina to 25.43 for Iran. Lower PPDA indicates more passes allowed per defensive action and should not be interpreted alone as team quality.
+3. **M4 showed players with possession value:** among players with at least 25 minutes, Richie Laryea led the fixture sample at 0.584 xT added per 90.
+
+Limitations: only three matches are in the current warehouse; lineup defects, missing freeze frames, and small-sample rates affect interpretation. The M3 full-data benchmark remains pending until at least 40 matches are built. Data is from StatsBomb Open Data and is attributed here as required by its licence.
 
 ## Data
 

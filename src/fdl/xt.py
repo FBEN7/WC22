@@ -64,15 +64,53 @@ def expected_threat(
     ny: int = 12,
     n_iter: int = 50,
 ) -> np.ndarray:
-    """The xT grid, shape (ny, nx): row iy, column ix (use cell_index to bin).
+    """Karun Singh-style expected-threat grid by fixed-point iteration."""
+    n_cells = nx * ny
+    move_start = cell_index(moves["x"].to_numpy(), moves["y"].to_numpy(), nx, ny)
+    move_end = cell_index(moves["end_x"].to_numpy(), moves["end_y"].to_numpy(), nx, ny)
+    shot_start = cell_index(shots["x"].to_numpy(), shots["y"].to_numpy(), nx, ny)
 
-    `moves` needs x, y, end_x, end_y, success; `shots` needs x, y, is_goal.
-    Run the iteration `n_iter` times (or until it stops changing).
-    """
-    raise NotImplementedError("M4: expected_threat")
+    move_count = np.bincount(move_start, minlength=n_cells).astype(float)
+    shot_count = np.bincount(shot_start, minlength=n_cells).astype(float)
+    action_count = move_count + shot_count
+
+    goal_count = np.bincount(
+        shot_start,
+        weights=shots["is_goal"].to_numpy(dtype=float),
+        minlength=n_cells,
+    )
+    shot_goal_rate = np.divide(goal_count, shot_count, out=np.zeros(n_cells), where=shot_count > 0)
+
+    transition = np.zeros((n_cells, n_cells), dtype=float)
+    successful = moves["success"].to_numpy(dtype=bool)
+    if successful.any():
+        np.add.at(transition, (move_start[successful], move_end[successful]), 1.0)
+    transition = np.divide(transition, move_count[:, None], out=np.zeros_like(transition),
+                           where=move_count[:, None] > 0)
+
+    shot_share = np.divide(shot_count, action_count, out=np.zeros(n_cells), where=action_count > 0)
+    move_share = np.divide(move_count, action_count, out=np.zeros(n_cells), where=action_count > 0)
+
+    grid = np.zeros(n_cells, dtype=float)
+    for _ in range(n_iter):
+        continuation = transition @ grid
+        updated = shot_share * shot_goal_rate + move_share * continuation
+        updated[action_count == 0] = 0.0
+        if np.allclose(updated, grid, rtol=1e-10, atol=1e-12):
+            grid = updated
+            break
+        grid = updated
+
+    return grid.reshape(ny, nx)
 
 
 def rate_moves(moves: pd.DataFrame, grid: np.ndarray) -> pd.Series:
-    """xT added by each move: xT(end cell) - xT(start cell) if successful, else 0.
-    Returned as a float Series aligned with `moves`."""
-    raise NotImplementedError("M4: rate_moves")
+    """xT end minus start for successful moves; unsuccessful moves add zero."""
+    nx = grid.shape[1]
+    ny = grid.shape[0]
+    start = cell_index(moves["x"].to_numpy(), moves["y"].to_numpy(), nx, ny)
+    end = cell_index(moves["end_x"].to_numpy(), moves["end_y"].to_numpy(), nx, ny)
+
+    flat = grid.ravel()
+    values = np.where(moves["success"].to_numpy(dtype=bool), flat[end] - flat[start], 0.0)
+    return pd.Series(values, index=moves.index, dtype=float)
