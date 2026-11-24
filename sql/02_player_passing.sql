@@ -17,9 +17,47 @@
 -- Question to answer in your write-up: why is passes_p90 misleading for a player
 -- with 25 minutes, and what threshold do analysts use?
 
--- TODO: replace this query, then delete this line.
-SELECT NULL::BIGINT AS player_id, NULL::VARCHAR AS player_name, NULL::BIGINT AS team_id,
-       NULL::VARCHAR AS team_name, NULL::BIGINT AS matches, NULL::DOUBLE AS minutes,
-       NULL::BIGINT AS passes, NULL::BIGINT AS completed, NULL::DOUBLE AS completion_pct,
-       NULL::BIGINT AS progressive, NULL::DOUBLE AS passes_p90, NULL::DOUBLE AS progressive_p90
-WHERE false
+WITH player_minutes AS (
+    SELECT player_id, team_id,
+           sum(minutes) AS minutes,
+           count(DISTINCT match_id) AS matches
+    FROM minutes_played
+    GROUP BY player_id, team_id
+),
+pass_stats AS (
+    SELECT e.player_id,
+           e.team_id,
+           e.player_name,
+           e.team_name,
+           count(*) AS passes,
+           count(*) FILTER (WHERE p.outcome IS NULL) AS completed,
+           count(*) FILTER (
+               WHERE p.outcome IS NULL
+                 AND coalesce(p.pass_type, '') NOT IN
+                     ('Corner', 'Free Kick', 'Throw-in', 'Goal Kick', 'Kick Off')
+                 AND sqrt(power(120.0 - p.end_x, 2) + power(40.0 - p.end_y, 2))
+                     <= 0.75 * sqrt(power(120.0 - e.x, 2) + power(40.0 - e.y, 2))
+           ) AS progressive
+    FROM passes p
+    JOIN events e USING (event_id)
+    WHERE e.period != 5
+    GROUP BY e.player_id, e.team_id, e.player_name, e.team_name
+)
+SELECT m.player_id,
+       s.player_name,
+       m.team_id,
+       s.team_name,
+       m.matches,
+       m.minutes,
+       s.passes,
+       s.completed,
+       100.0 * s.completed / s.passes AS completion_pct,
+       s.progressive,
+       s.passes / m.minutes * 90.0 AS passes_p90,
+       s.progressive / m.minutes * 90.0 AS progressive_p90
+FROM player_minutes m
+JOIN pass_stats s
+  ON s.player_id = m.player_id
+ AND s.team_id = m.team_id
+WHERE s.passes > 0
+ORDER BY m.player_id, m.team_id

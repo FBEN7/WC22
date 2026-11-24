@@ -28,27 +28,105 @@ REQUIRED_COLUMNS = [
 
 
 def shot_geometry(x, y) -> tuple[np.ndarray, np.ndarray]:
-    """Distance and angle of shots taken from (x, y) - scalars or arrays.
+    """Distance and angle subtended by the goal posts."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
 
-    distance: yards from (x, y) to the centre of the goal (120, 40).
-    angle: radians, the angle the goal mouth subtends from (x, y), i.e. the
-    angle between the lines to the two posts (120, 36) and (120, 44).
-    It is pi on the goal line between the posts and 0 on the goal line outside them.
-    """
-    raise NotImplementedError("M3: shot_geometry")
+    gx = GOAL_CENTRE[0]
+    low, high = GOAL_POSTS_Y
+    vx_low, vy_low = gx - x, low - y
+    vx_high, vy_high = gx - x, high - y
+
+    dot = vx_low * vx_high + vy_low * vy_high
+    norms = np.sqrt(vx_low**2 + vy_low**2) * np.sqrt(vx_high**2 + vy_high**2)
+    angle = np.zeros_like(dot if np.ndim(dot) else np.asarray(dot))
+    np.divide(dot, norms, out=angle, where=norms > 0)
+    angle = np.arccos(np.clip(angle, -1.0, 1.0))
+
+    outside_goal_line = (x >= gx) & ((y < low) | (y > high))
+    angle = np.where(outside_goal_line, 0.0, angle)
+    distance = np.sqrt((gx - x) ** 2 + (GOAL_CENTRE[1] - y) ** 2)
+
+    if np.ndim(distance) == 0:
+        return float(distance), float(angle)
+    return distance, angle
 
 
 def build_shot_features(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """One row per shot, PENALTIES AND THE SHOOT-OUT (period 5) EXCLUDED.
+    """One row per open-play/free-kick shot, excluding the penalty shoot-out."""
+    df = con.execute("""
+        SELECT s.event_id, s.match_id, s.shot_type,
+               s.outcome = 'Goal' AS is_goal,
+               s.statsbomb_xg,
+               e.x, e.y,
+               e.position_name,
+               coalesce(s.shot_type = 'Penalty', false) AS is_penalty,
+               coalesce(s.body_part = 'Head', false) AS is_header
+        FROM shots s
+        JOIN events e USING (event_id)
+        WHERE s.shot_type != 'Penalty' AND e.period < 5
+    """).df()
 
-    Must contain REQUIRED_COLUMNS (is_goal and is_header as 0/1 integers) plus at
-    least two features of your own built from `shot_freeze_frames`, for example:
-    the number of opponents inside the triangle formed by the ball and the two
-    posts, the goalkeeper's distance from the centre of the goal, the number of
-    opponents within 5 yards of the shooter. No NaN in any numeric column: decide
-    explicitly what to do with shots that have no freeze frame, and say so.
-    """
-    raise NotImplementedError("M3: build_shot_features")
+    distance, angle = shot_geometry(df["x"].to_numpy(), df["y"].to_numpy())
+    df["distance"] = distance
+    df["angle"] = angle
+    df["is_goal"] = df["is_goal"].astype(int)
+    df["is_header"] = df["is_header"].astype(int)
+
+    ff = con.execute("""
+        SELECT shot_event_id AS event_id, teammate, position_name, x, y
+        FROM shot_freeze_frames
+    """).df()
+
+    opponents_in_cone = []
+    defenders_within_5 = []
+    keeper_distances = []
+
+    for row in df.itertuples(index=False):
+        frame = ff[ff["event_id"] == row.event_id]
+        opponents = frame[frame["teammate"] == False]
+
+        bx, by = row.x, row.y
+        p1 = np.array([120.0, 36.0])
+        p2 = np.array([120.0, 44.0])
+        ball = np.array([bx, by])
+
+        def sign(a, b, c):
+            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+        def inside(point):
+            d1 = sign(ball, p1, point)
+            d2 = sign(p1, p2, point)
+            d3 = sign(p2, ball, point)
+            has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+            has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+            return not (has_neg and has_pos)
+
+        opponents_in_cone.append(sum(inside(np.array([x, y]))
+                                      for x, y in opponents[["x", "y"]].to_numpy()))
+        defenders_within_5.append(sum(
+            np.hypot(x - bx, y - by) <= 5.0
+            for x, y in opponents[["x", "y"]].to_numpy()
+        ))
+
+        keepers = opponents[
+            opponents["position_name"] .fillna("").str.contains("Goalkeeper", case=False)
+        ]
+        if keepers.empty:
+            keeper_distances.append(40.0)
+        else:
+            keeper_distances.append(float(np.min(np.hypot(
+                keepers["x"].to_numpy() - 120.0,
+                keepers["y"].to_numpy() - 40.0,
+            ))))
+
+    df["opponents_in_cone"] = np.asarray(opponents_in_cone, dtype=int)
+    df["defenders_within_5"] = np.asarray(defenders_within_5, dtype=int)
+    df["keeper_distance"] = np.asarray(keeper_distances, dtype=float)
+
+    return df[list(dict.fromkeys(REQUIRED_COLUMNS + [
+        "opponents_in_cone", "defenders_within_5", "keeper_distance", "is_header",
+    ]))]
 
 
 def default_model():
@@ -63,15 +141,21 @@ def fit_predict_oof(
     n_splits: int = 5,
     group_col: str = "match_id",
 ) -> np.ndarray:
-    """Out-of-fold P(goal) for every row of `df`.
+    """Match-grouped out-of-fold probabilities."""
+    from sklearn.model_selection import GroupKFold
 
-    Split with sklearn's GroupKFold on `group_col`: all shots of a match must
-    land in the same fold, otherwise the model is evaluated on matches it has
-    partly seen. For each fold, build a fresh model with `model_factory()`,
-    fit it on df[feature_cols] / df['is_goal'] of the other folds, and fill in
-    predict_proba(...)[:, 1] for this fold. Return an array aligned with df.
-    """
-    raise NotImplementedError("M3: fit_predict_oof")
+    X = feature_matrix(df, feature_cols)
+    y = df["is_goal"].to_numpy(dtype=int)
+    groups = df[group_col].to_numpy()
+    predictions = np.zeros(len(df), dtype=float)
+
+    splitter = GroupKFold(n_splits=n_splits)
+    for train_idx, test_idx in splitter.split(X, y, groups):
+        model = model_factory()
+        model.fit(X[train_idx], y[train_idx])
+        predictions[test_idx] = model.predict_proba(X[test_idx])[:, 1]
+
+    return predictions
 
 
 # ------------------------------------------------------------------ provided

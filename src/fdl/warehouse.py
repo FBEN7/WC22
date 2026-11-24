@@ -256,11 +256,13 @@ _INT_COLS = {"jersey_number", "spell_order", "match_week"}
 
 
 def _tidy(df: pd.DataFrame) -> pd.DataFrame:
-    """Integer ids stay integers even when some rows have none (pandas would use float)."""
+    """Keep integer and text dtypes compatible with older DuckDB releases."""
     for col in df.columns:
         is_int_col = col.endswith(("_id", "_period")) or col in _INT_COLS
         if is_int_col and pd.api.types.is_float_dtype(df[col]):
             df[col] = df[col].astype("Int64")
+        elif pd.api.types.is_string_dtype(df[col].dtype):
+            df[col] = df[col].astype(object)
     return df
 
 

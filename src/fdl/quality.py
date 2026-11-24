@@ -43,58 +43,164 @@ def check_coordinates_in_bounds(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def check_score_reconciliation(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """The goals found in the events add up to the score in `matches`.
-
-    One row per match whose events disagree with `matches.home_score / away_score`.
-    Columns: match_id, home_score, away_score, home_goals_events, away_goals_events.
-
-    Read the StatsBomb event spec before writing this: think about own goals and
-    about penalty shoot-outs.
-    """
-    raise NotImplementedError("M1: check_score_reconciliation")
+    """The goals found in events reconcile with match scores, excluding shoot-outs."""
+    return con.execute("""
+        WITH shot_goals AS (
+            SELECT e.match_id, e.team_id, count(*) AS goals
+            FROM shots s
+            JOIN events e USING (event_id)
+            WHERE s.outcome = 'Goal' AND e.period != 5
+            GROUP BY e.match_id, e.team_id
+        ),
+        own_goals AS (
+            SELECT match_id, team_id, count(*) AS goals
+            FROM events
+            WHERE type_name = 'Own Goal For'
+            GROUP BY match_id, team_id
+        ),
+        goal_counts AS (
+            SELECT match_id, team_id, sum(goals) AS goals
+            FROM (
+                SELECT * FROM shot_goals
+                UNION ALL
+                SELECT * FROM own_goals
+            )
+            GROUP BY match_id, team_id
+        ),
+        totals AS (
+            SELECT m.match_id, m.home_team_id, m.away_team_id,
+                   m.home_score, m.away_score,
+                   coalesce(g_h.goals, 0) AS home_goals_events,
+                   coalesce(g_a.goals, 0) AS away_goals_events
+            FROM matches m
+            LEFT JOIN goal_counts g_h
+              ON g_h.match_id = m.match_id AND g_h.team_id = m.home_team_id
+            LEFT JOIN goal_counts g_a
+              ON g_a.match_id = m.match_id AND g_a.team_id = m.away_team_id
+        )
+        SELECT match_id, home_score, away_score,
+               home_goals_events, away_goals_events
+        FROM totals
+        WHERE home_goals_events + away_goals_events
+              != home_score + away_score
+        ORDER BY match_id
+    """).df()
 
 
 def check_event_order(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Within a match and period, timestamps never go backwards as `idx` increases.
-
-    One row per event whose timestamp is earlier than the event just before it
-    (by idx) in the same period. Columns: match_id, period, idx, event_id,
-    type_name, timestamp, previous_timestamp.
-    """
-    raise NotImplementedError("M1: check_event_order")
+    """Within a match and period, timestamps never go backwards as `idx` increases."""
+    return con.execute("""
+        WITH ordered AS (
+            SELECT *, lag(timestamp) OVER (
+                       PARTITION BY match_id, period ORDER BY idx
+                   ) AS previous_timestamp,
+                   lag(ts_seconds) OVER (
+                       PARTITION BY match_id, period ORDER BY idx
+                   ) AS previous_seconds
+            FROM events
+        )
+        SELECT match_id, period, idx, event_id, type_name,
+               timestamp, previous_timestamp
+        FROM ordered
+        WHERE previous_timestamp IS NOT NULL
+          AND ts_seconds < previous_seconds
+        ORDER BY match_id, period, idx
+    """).df()
 
 
 def check_related_events_reciprocal(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """If event A lists B in `related_events`, B lists A too.
-
-    One row per non-reciprocated link. Columns: match_id, event_id,
-    related_event_id. Before you decide something is a defect, find out whether
-    the spec makes some links one-way by design (look at the data by event type).
-    """
-    raise NotImplementedError("M1: check_related_events_reciprocal")
+    """Report non-reciprocal links, excluding documented one-way links in the data model."""
+    return con.execute("""
+        WITH links AS (
+            SELECT e.match_id, e.event_id, e.type_name,
+                   unnest(e.related_events) AS related_event_id
+            FROM events e
+        )
+        SELECT l.match_id, l.event_id, l.related_event_id
+        FROM links l
+        JOIN events target ON target.event_id = l.related_event_id
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM events reverse
+            WHERE reverse.event_id = l.related_event_id
+              AND l.event_id IN (SELECT unnest(reverse.related_events))
+        )
+          AND NOT (l.type_name = 'Carry' AND target.type_name = 'Pass')
+          AND NOT (l.type_name = 'Pass' AND target.type_name = 'Carry')
+          AND l.type_name != 'Carry'
+        ORDER BY l.match_id, l.event_id, l.related_event_id
+    """).df()
 
 
 def check_players_in_lineups(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Every (match, team, player) that appears in events - as the actor or as a
-    pass recipient - appears in that match's lineup for that team.
-
-    One row per missing (match_id, team_id, player_id). Columns: match_id,
-    team_id, player_id, player_name.
-    """
-    raise NotImplementedError("M1: check_players_in_lineups")
+    """Every event actor and pass recipient must appear in its team's lineup."""
+    return con.execute("""
+        WITH players AS (
+            SELECT match_id, team_id, player_id, player_name
+            FROM events
+            WHERE player_id IS NOT NULL
+            UNION
+            SELECT e.match_id, e.team_id, p.recipient_id, p.recipient_name
+            FROM passes p
+            JOIN events e USING (event_id)
+            WHERE p.recipient_id IS NOT NULL
+        )
+        SELECT DISTINCT p.match_id, p.team_id, p.player_id, p.player_name
+        FROM players p
+        LEFT JOIN lineups l
+          ON l.match_id = p.match_id
+         AND l.team_id = p.team_id
+         AND l.player_id = p.player_id
+        WHERE l.player_id IS NULL
+        ORDER BY p.match_id, p.team_id, p.player_id
+    """).df()
 
 
 def check_lineup_spells(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """A player's position spells, taken in `spell_order`, are chronological.
-
-    Compare points in time as (period, clock), never the clock alone. A spell is
-    a violation when it ends before it starts, starts before the previous spell
-    ended, or follows a spell that never ended (only the last spell may have a
-    NULL `to_clock`). One row per offending spell. Columns: match_id, team_id,
-    player_id, player_name, spell_order, from_clock, from_period, to_clock,
-    to_period.
-    """
-    raise NotImplementedError("M1: check_lineup_spells")
+    """Position spells are chronological and non-overlapping by period and clock."""
+    return con.execute("""
+        WITH clock_seconds AS (
+            SELECT *,
+                   try_cast(split_part(from_clock, ':', 1) AS DOUBLE) * 60
+                   + try_cast(split_part(from_clock, ':', 2) AS DOUBLE)
+                     AS from_seconds,
+                   CASE WHEN to_clock IS NULL THEN NULL ELSE
+                       try_cast(split_part(to_clock, ':', 1) AS DOUBLE) * 60
+                       + try_cast(split_part(to_clock, ':', 2) AS DOUBLE)
+                   END AS to_seconds
+            FROM lineups
+            WHERE spell_order IS NOT NULL
+        ),
+        checked AS (
+            SELECT s.*,
+                   lag(to_clock) OVER (
+                       PARTITION BY match_id, team_id, player_id
+                       ORDER BY spell_order
+                   ) AS prev_to_clock,
+                   lag(to_period) OVER (
+                       PARTITION BY match_id, team_id, player_id
+                       ORDER BY spell_order
+                   ) AS prev_to_period,
+                   lag(to_seconds) OVER (
+                       PARTITION BY match_id, team_id, player_id
+                       ORDER BY spell_order
+                   ) AS prev_to_seconds
+            FROM clock_seconds s
+        )
+        SELECT match_id, team_id, player_id, player_name, spell_order,
+               from_clock, from_period, to_clock, to_period
+        FROM checked
+        WHERE (to_period IS NOT NULL AND (
+                   from_period > to_period
+                   OR (from_period = to_period AND from_seconds > to_seconds)
+               ))
+           OR (spell_order > 0 AND prev_to_clock IS NULL)
+           OR (prev_to_period IS NOT NULL AND (
+                   from_period < prev_to_period
+                   OR (from_period = prev_to_period AND from_seconds < prev_to_seconds)
+               ))
+        ORDER BY match_id, team_id, player_id, spell_order
+    """).df()
 
 
 CHECKS: dict[str, Check] = {
