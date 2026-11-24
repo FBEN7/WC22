@@ -109,7 +109,12 @@ def check_event_order(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def check_related_events_reciprocal(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
-    """Report non-reciprocal links, excluding documented one-way links in the data model."""
+    """Report links to missing events, and non-reciprocal links.
+
+    Links FROM a Carry are one-way by design (a carry points to the pass and receipt
+    around it, which do not point back), so they are not reported. Every other link
+    type is fully reciprocal in WC 2022 (e.g. Pass <-> Ball Receipt*: 63,699 / 63,699).
+    """
     return con.execute("""
         WITH links AS (
             SELECT e.match_id, e.event_id, e.type_name,
@@ -133,8 +138,6 @@ def check_related_events_reciprocal(con: duckdb.DuckDBPyConnection) -> pd.DataFr
            OR (
               reverse_event_id IS NULL
               AND type_name != 'Carry'
-              AND NOT (type_name = 'Pass' AND target_type = 'Ball Receipt*')
-              AND NOT (type_name = 'Ball Receipt*' AND target_type = 'Pass')
            )
         ORDER BY match_id, event_id, related_event_id
     """).df()

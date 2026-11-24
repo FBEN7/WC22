@@ -19,23 +19,26 @@ def main(argv: list[str] | None = None) -> None:
     d = sub.add_parser("download", help="download StatsBomb Open Data into data/raw")
     d.add_argument("--season", type=_season, action="append",
                    help="competition_id:season_id, repeatable "
-                        "(default: WC 2022, Euro 2020, Euro 2024)")
+                        "(default: WC 2018 & 2022, Euro 2020 & 2024, Copa America 2024, "
+                        "AFCON 2023)")
     d.add_argument("--fixtures", action="store_true", help="only the 3 test-suite matches")
     d.add_argument("--max-matches", type=int, help="per season, for a quick start")
-    d.add_argument("--no-360", action="store_true")
+    d.add_argument("--with-360", action="store_true",
+                   help="also download 360 freeze frames where available (~2 GB more)")
 
     sub.add_parser("build", help="(re)build data/warehouse.duckdb from data/raw")
     sub.add_parser("quality", help="run the M1 data-quality checks on the warehouse")
+    sub.add_parser("report", help="pressing analysis: figures and tables in reports/pressing/")
 
     args = ap.parse_args(argv)
     if args.cmd == "download":
         from fdl.ingest import download
 
         if args.fixtures:
-            download(match_ids=FIXTURE_MATCHES, with_360=not args.no_360)
+            download(match_ids=FIXTURE_MATCHES, with_360=True)  # the tests use them
         else:
             download(seasons=args.season or DEFAULT_SEASONS,
-                     max_matches=args.max_matches, with_360=not args.no_360)
+                     max_matches=args.max_matches, with_360=args.with_360)
     elif args.cmd == "build":
         from fdl.warehouse import build
 
@@ -46,6 +49,13 @@ def main(argv: list[str] | None = None) -> None:
 
         with connect() as con:
             print(run_all(con).to_string(index=False))
+    elif args.cmd == "report":
+        from fdl.pressing import REPORT_DIR, report
+        from fdl.warehouse import connect
+
+        with connect() as con:
+            report(con)
+        print(f"written to {REPORT_DIR}")
 
 
 if __name__ == "__main__":

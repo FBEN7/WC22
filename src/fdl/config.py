@@ -12,11 +12,14 @@ DB_PATH = Path(os.environ.get("FDL_DB", DATA_DIR / "warehouse.duckdb"))
 
 BASE_URL = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
 
-# (competition_id, season_id). All three have StatsBomb 360 freeze frames.
+# (competition_id, season_id): the six men's senior tournaments 2018-2024 in the open data.
 DEFAULT_SEASONS: list[tuple[int, int]] = [
-    (43, 106),  # FIFA World Cup 2022
-    (55, 43),  # UEFA Euro 2020
-    (55, 282),  # UEFA Euro 2024
+    (43, 3),  # FIFA World Cup 2018
+    (43, 106),  # FIFA World Cup 2022  (360)
+    (55, 43),  # UEFA Euro 2020  (360)
+    (55, 282),  # UEFA Euro 2024  (360)
+    (223, 282),  # Copa America 2024
+    (1267, 107),  # African Cup of Nations 2023  (360)
 ]
 
 # Small, deliberately awkward matches used by the test suite.

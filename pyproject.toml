@@ -1,7 +1,7 @@
 [project]
 name = "football-data-lab"
 version = "0.1.0"
-description = "StatsBomb Open Data -> DuckDB warehouse -> data-quality checks, SQL, xG and xT models, Streamlit app"
+description = "Does pressing pay off at international tournaments? StatsBomb Open Data, DuckDB, statsmodels, Streamlit"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -10,6 +10,7 @@ dependencies = [
     "numpy>=1.26",
     "requests>=2.31",
     "scikit-learn>=1.4",
+    "statsmodels>=0.14",
     "matplotlib>=3.8",
     "mplsoccer>=1.2",
     "streamlit>=1.35",
